@@ -15,7 +15,7 @@ try:
     from gui.image_viewer import ImageViewer
     from utils.image_utils import pil_to_pixmap, get_supported_formats
     from models.point import Point
-    from gui.point_manager import PointManager, PointControlsWidget  # 👈 ADICIONADO PointControlsWidget
+    from gui.point_manager import PointManager
     from gui.points_table import PointsTable
 except ImportError:
     # Criando classes stub para evitar erros de importação
@@ -97,21 +97,6 @@ except ImportError:
         def update_points(self, points):
             self.label.setText(f"{len(points)} pontos registrados")
 
-    # 👇 NOVO: Stub para PointControlsWidget
-    class PointControlsWidget(QWidget):
-        def __init__(self, point_manager, image_viewer):
-            super().__init__()
-            self.point_manager = point_manager
-            self.image_viewer = image_viewer
-            self.layout = QVBoxLayout()
-            self.setLayout(self.layout)
-            self.label = QLabel("Controles de Pontos - Placeholder")
-            self.layout.addWidget(self.label)
-            
-        def set_circle_mode(self): pass
-        def set_rectangle_mode(self): pass
-        def update_points_list(self, points): pass
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -129,9 +114,7 @@ class MainWindow(QMainWindow):
         
         # Sistema de pontos DEPOIS do image_viewer
         self.point_manager = PointManager()
-        
-        # 👇 SUBSTITUÍDO: Agora usamos PointControlsWidget em vez de PointsTable
-        self.point_controls = PointControlsWidget(self.point_manager, self.image_viewer)
+        self.points_table = PointsTable()
         
         # AGORA podemos conectar o point_manager ao image_viewer
         self.image_viewer.set_point_manager(self.point_manager)
@@ -241,18 +224,46 @@ class MainWindow(QMainWindow):
         layout_edicao.addStretch()
         
         # TOOLBAR MARCAÇÃO - ALTURA MÍNIMA
-        # 👇 MODIFICADO: Agora a toolbar de marcação é MUITO mais simples
         self.toolbar_marcacao = QWidget()
-        self.toolbar_marcacao.setFixedHeight(28)
+        self.toolbar_marcacao.setFixedHeight(28)  # ALTURA FIXA
         layout_marcacao = QHBoxLayout()
-        layout_marcacao.setContentsMargins(2, 1, 2, 1)
-        layout_marcacao.setSpacing(2)
+        layout_marcacao.setContentsMargins(2, 1, 2, 1)  # MARGENS MÍNIMAS
+        layout_marcacao.setSpacing(2)  # ESPAÇAMENTO MÍNIMO
         self.toolbar_marcacao.setLayout(layout_marcacao)
         
-        # Apenas um label informativo - controles detalhados estão no PointControlsWidget
-        info_label = QLabel("🎯 Use os controles no painel direito para marcação de pontos")
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
-        layout_marcacao.addWidget(info_label)
+        # Botões COMPACTOS para marcação
+        self.btn_circulo = QPushButton("⭕")
+        self.btn_circulo.setToolTip("Círculo")
+        self.btn_circulo.setFixedSize(30, 24)
+        self.btn_retangulo = QPushButton("⬜")
+        self.btn_retangulo.setToolTip("Retângulo")
+        self.btn_retangulo.setFixedSize(30, 24)
+        self.btn_mais = QPushButton("➕")
+        self.btn_mais.setToolTip("Aumentar tamanho")
+        self.btn_mais.setFixedSize(30, 24)
+        self.btn_menos = QPushButton("➖")
+        self.btn_menos.setToolTip("Diminuir tamanho")
+        self.btn_menos.setFixedSize(30, 24)
+        self.btn_girar = QPushButton("🔄")
+        self.btn_girar.setToolTip("Girar")
+        self.btn_girar.setFixedSize(30, 24)
+        self.btn_comprimento = QPushButton("📏")
+        self.btn_comprimento.setToolTip("Comprimento")
+        self.btn_comprimento.setFixedSize(30, 24)
+        
+        self.btn_circulo.clicked.connect(self.definir_modo_circulo)
+        self.btn_retangulo.clicked.connect(self.definir_modo_retangulo)
+        self.btn_mais.clicked.connect(self.aumentar_tamanho_ponto)
+        self.btn_menos.clicked.connect(self.diminuir_tamanho_ponto)
+        self.btn_girar.clicked.connect(self.girar_retangulo)
+        self.btn_comprimento.clicked.connect(self.definir_comprimento)
+        
+        layout_marcacao.addWidget(self.btn_circulo)
+        layout_marcacao.addWidget(self.btn_retangulo)
+        layout_marcacao.addWidget(self.btn_mais)
+        layout_marcacao.addWidget(self.btn_menos)
+        layout_marcacao.addWidget(self.btn_girar)
+        layout_marcacao.addWidget(self.btn_comprimento)
         layout_marcacao.addStretch()
         
         self.toolbar_stack.addWidget(self.toolbar_edicao)
@@ -268,7 +279,7 @@ class MainWindow(QMainWindow):
         
         # TOOLBAR DINÂMICA - ALTURA FIXA
         self.setup_dynamic_toolbars()
-        self.toolbar_stack.setFixedHeight(30)
+        self.toolbar_stack.setFixedHeight(30)  # ALTURA FIXA PARA O STACKED WIDGET
         layout.addWidget(self.toolbar_stack)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -316,10 +327,12 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
         
-        # 👇 SUBSTITUÍDO: Agora usamos PointControlsWidget completo
-        right_layout.addWidget(self.point_controls)
+        points_label = QLabel("📋 Pontos de Medição:")
+        points_label.setStyleSheet("font-weight: bold;")
+        right_layout.addWidget(points_label)
         
-        # Hardware info mantido
+        right_layout.addWidget(self.points_table)
+        
         hardware_frame = QFrame()
         hardware_frame.setStyleSheet("background-color: #e8f4fd; padding: 10px; border-radius: 5px;")
         hardware_layout = QVBoxLayout()
@@ -374,14 +387,16 @@ class MainWindow(QMainWindow):
 
     def connect_signals(self):
         # Conectar sinais apenas se existirem
+        # Conectar zoom changed para atualizar cursor
+        # Conectar zoom changed para atualizar cursor
         if hasattr(self.image_viewer, 'zoom_changed'):
             self.image_viewer.zoom_changed.connect(self._on_zoom_changed_update_cursor)
 
+        # E adicione este método:
         def on_zoom_changed_for_cursor(self, zoom_level):
             """Atualiza cursor quando o zoom muda"""
             if hasattr(self.image_viewer, '_points_mode') and self.image_viewer._points_mode:
                 self.image_viewer.update_cursor()
-                
         if hasattr(self.image_editor, 'image_updated'):
             self.image_editor.image_updated.connect(self.on_image_updated)
         if hasattr(self.image_editor, 'error_occurred'):
@@ -403,9 +418,7 @@ class MainWindow(QMainWindow):
             self.point_manager.points_changed.connect(self.image_viewer.set_points)
 
     def on_points_changed(self, points):
-        # 👇 ATUALIZADO: Agora o PointControlsWidget cuida da lista de pontos
-        if hasattr(self.point_controls, 'update_points_list'):
-            self.point_controls.update_points_list(points)
+        self.points_table.update_points(points)
 
     def on_image_click(self, position: QPointF):
         """Handler para quando o usuário clica na imagem no modo marcação"""
@@ -429,12 +442,50 @@ class MainWindow(QMainWindow):
         self.btn_marcar.setChecked(True)
         self.toolbar_stack.setCurrentWidget(self.toolbar_marcacao)
         self.image_viewer.set_points_mode(True)
-        self.statusBar().showMessage("Modo: Marcação de Pontos - Use os controles no painel direito")
+        self.statusBar().showMessage("Modo: Marcação de Pontos - Clique na imagem para adicionar pontos")
         print("🎯 Modo Marcação ativado")
 
-    # === MÉTODOS DOS BOTÕES DE MARCAÇÃO - REMOVIDOS ===
-    # 👇 ESTES MÉTODOS FORAM REMOVIDOS pois agora estão no PointControlsWidget
-    # definir_modo_circulo, definir_modo_retangulo, aumentar_tamanho_ponto, etc.
+    # === MÉTODOS DOS BOTÕES DE MARCAÇÃO ===
+    
+    def definir_modo_circulo(self):
+        self.point_manager.current_shape = 'circle'
+        self.image_viewer.set_points_mode(True, 'circle')
+        self.statusBar().showMessage("Modo: Círculo - Clique na imagem para adicionar pontos circulares")
+        print("🎯 Modo Círculo ativado")
+    
+    def definir_modo_retangulo(self):
+        self.point_manager.current_shape = 'rectangle'
+        self.image_viewer.set_points_mode(True, 'rectangle')
+        self.statusBar().showMessage("Modo: Retângulo - Clique na imagem para adicionar pontos retangulares")
+        print("🎯 Modo Retângulo ativado")
+    
+    def aumentar_tamanho_ponto(self):
+        if self.point_manager.current_size < 100:  # Limite máximo
+            self.point_manager.current_size += 5
+            self.statusBar().showMessage(f"Tamanho do ponto: {self.point_manager.current_size}px")
+            print(f"➕ Tamanho do ponto aumentado para {self.point_manager.current_size}px")
+            # Atualizar o cursor
+            self.image_viewer.update_cursor()
+        else:
+            self.statusBar().showMessage("Tamanho máximo atingido (100px)")
+
+    def diminuir_tamanho_ponto(self):
+        if self.point_manager.current_size > 10:  # Limite mínimo
+            self.point_manager.current_size -= 5
+            self.statusBar().showMessage(f"Tamanho do ponto: {self.point_manager.current_size}px")
+            print(f"➖ Tamanho do ponto diminuído para {self.point_manager.current_size}px")
+            # Atualizar o cursor
+            self.image_viewer.update_cursor()
+        else:
+            self.statusBar().showMessage("Tamanho mínimo atingido (10px)")
+    
+    def girar_retangulo(self):
+        self.statusBar().showMessage("Função girar retângulo - Em desenvolvimento")
+        print("🔄 Girar retângulo")
+    
+    def definir_comprimento(self):
+        self.statusBar().showMessage("Função comprimento - Em desenvolvimento")
+        print("📏 Definir comprimento")
 
     # === MÉTODOS DE IMAGEM ===
     

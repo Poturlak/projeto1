@@ -44,14 +44,6 @@ class ImageViewer(QGraphicsView):
         self._drag_start_pos = QPointF()
         self._drag_threshold = 5
         
-        # 👇 NOVO: Controle para modo de desenho de pontos
-        self._draw_point_mode = False
-        self._draw_point_shape = 'circle'
-        self._draw_start = QPointF()
-        self._draw_end = QPointF()
-        self._last_size_per_shape = {'circle': 20, 'rectangle': 20}
-        self._draw_mode_active = {'circle': False, 'rectangle': False}
-        
         # Pontos para desenhar
         self.points: List[Point] = []
         
@@ -83,22 +75,6 @@ class ImageViewer(QGraphicsView):
             painter.drawRect(selection_rect)
             painter.fillRect(selection_rect, QColor(255, 0, 0, 50))
         
-        # 👇 NOVO: Desenha preview do ponto durante o desenho
-        if (self._draw_point_mode and not self._draw_start.isNull() and 
-            not self._draw_end.isNull()):
-            
-            draw_rect = QRectF(self._draw_start, self._draw_end).normalized()
-            if self._draw_point_shape == 'circle':
-                painter.setPen(QPen(QColor(0, 255, 0), 2))  # Verde para preview
-                painter.setBrush(QColor(0, 255, 0, 50))
-                center = draw_rect.center()
-                radius = max(draw_rect.width(), draw_rect.height()) / 2
-                painter.drawEllipse(center, radius, radius)
-            else:  # rectangle
-                painter.setPen(QPen(QColor(0, 255, 0), 2))
-                painter.setBrush(QColor(0, 255, 0, 50))
-                painter.drawRect(draw_rect)
-        
         # DESENHA OS PONTOS
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for point in self.points:
@@ -119,19 +95,19 @@ class ImageViewer(QGraphicsView):
                 painter.drawEllipse(pos, size/2, size/2)
                 
                 # Texto BRANCO com FONTE MAIS ESPESSA
-                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                painter.setPen(QPen(QColor(255, 255, 255), 1))  # Espessura aumentada para 2
                 text_rect = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
                 
             elif point.shape == 'rectangle':
                 # Retângulo vermelho com MENOS transparência
-                painter.setPen(QPen(QColor(255, 0, 0), 2))
+                painter.setPen(QPen(QColor(255, 0, 0), 1))
                 painter.setBrush(QColor(255, 0, 0, 120))
                 rect_draw = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
                 painter.drawRect(rect_draw)
                 
                 # Texto BRANCO com FONTE MAIS ESPESSA
-                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                painter.setPen(QPen(QColor(255, 255, 255), 2))  # Espessura aumentada para 2
                 text_rect = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
     
@@ -157,63 +133,6 @@ class ImageViewer(QGraphicsView):
             return self.point_manager.current_shape
         else:
             return 'circle'  # Forma padrão
-    
-    # 👇 NOVO: Métodos para controle do modo desenho
-    def set_draw_point_mode(self, enabled: bool, shape_type: str):
-        """Ativa/desativa modo de desenho de pontos"""
-        self._draw_point_mode = enabled
-        self._draw_point_shape = shape_type
-        self._crop_mode = False  # Desativa recorte
-        
-        # Ativa/desativa o modo desenho apenas para a forma específica
-        if shape_type in self._draw_mode_active:
-            self._draw_mode_active[shape_type] = enabled
-        
-        if enabled:
-            self.setCursor(Qt.CursorShape.CrossCursor)
-            print(f"Modo desenho {shape_type} ativado - Arraste para definir tamanho")
-        else:
-            # Mantém cursor de ponto se estiver no modo pontos, senão volta para arrow
-            self._set_point_cursor() if self._points_mode else self.setCursor(Qt.CursorShape.ArrowCursor)
-    
-    def increase_point_size(self):
-        """Aumenta tamanho do ponto atual OU último tamanho memorizado"""
-        current_shape = self._get_current_point_shape()
-        if self.points and self.points[-1].shape == current_shape:
-            # Aumenta último ponto criado
-            self.points[-1].size *= 1.2
-        else:
-            # Aumenta tamanho memorizado para futuros pontos
-            self._last_size_per_shape[current_shape] *= 1.2
-        
-        self.scene.update()
-        self.update_cursor()  # Atualiza cursor se necessário
-    
-    def decrease_point_size(self):
-        """Diminui tamanho do ponto atual OU último tamanho memorizado"""
-        current_shape = self._get_current_point_shape()
-        if self.points and self.points[-1].shape == current_shape:
-            # Diminui último ponto criado
-            self.points[-1].size = max(5, self.points[-1].size * 0.8)
-        else:
-            # Diminui tamanho memorizado para futuros pontos
-            self._last_size_per_shape[current_shape] = max(5, self._last_size_per_shape[current_shape] * 0.8)
-        
-        self.scene.update()
-        self.update_cursor()  # Atualiza cursor se necessário
-    
-    def undo_last_point(self):
-        """Remove último ponto"""
-        if self.points:
-            removed_point = self.points.pop()
-            print(f"Ponto {removed_point.id} removido")
-            self.scene.update()
-    
-    def delete_point_by_id(self, point_id: int):
-        """Remove ponto específico"""
-        self.points = [p for p in self.points if p.id != point_id]
-        self.scene.update()
-        print(f"Ponto {point_id} removido")
     
     def load_image(self, image_path: str) -> bool:
         """Carrega imagem do arquivo"""
@@ -301,9 +220,6 @@ class ImageViewer(QGraphicsView):
         transform = self.transform()
         self.zoom_factor = transform.m11()
         self.zoom_changed.emit(self.zoom_factor)
-        # ATUALIZA O CURSOR SE ESTIVER NO MODO PONTOS
-        if self._points_mode:
-            self.update_cursor()
     
     def actual_size(self):
         """Tamanho real (100%)"""
@@ -323,12 +239,6 @@ class ImageViewer(QGraphicsView):
                 self._crop_start = scene_pos
                 self._crop_end = scene_pos
                 self.crop_selection_started.emit(scene_pos)
-                self.scene.update()
-            elif self._draw_point_mode:
-                # 👇 NOVO: Inicia desenho de ponto
-                scene_pos = self.mapToScene(event.pos())
-                self._draw_start = scene_pos
-                self._draw_end = scene_pos
                 self.scene.update()
             elif self._points_mode:
                 self._drag_start_pos = event.pos()
@@ -353,11 +263,6 @@ class ImageViewer(QGraphicsView):
             v_scroll = self.verticalScrollBar()
             h_scroll.setValue(h_scroll.value() - delta.x())
             v_scroll.setValue(v_scroll.value() - delta.y())
-            
-        elif self._draw_point_mode and not self._draw_start.isNull():
-            # 👇 NOVO: Atualiza preview do desenho
-            self._draw_end = scene_pos
-            self.scene.update()
             
         elif self._points_mode and not self._drag_start_pos.isNull():
             move_distance = (event.pos() - self._drag_start_pos).manhattanLength()
@@ -385,62 +290,11 @@ class ImageViewer(QGraphicsView):
                 else:
                     self.setCursor(Qt.CursorShape.ArrowCursor)
                     
-            elif self._draw_point_mode and not self._draw_start.isNull():
-                # 👇 NOVO: Finaliza desenho de ponto
-                scene_pos = self.mapToScene(event.pos())
-                self._draw_end = scene_pos
-                
-                # Calcula tamanho baseado na área de desenho
-                draw_rect = QRectF(self._draw_start, self._draw_end).normalized()
-                size = max(draw_rect.width(), draw_rect.height())
-                
-                if size > 5:  # Tamanho mínimo
-                    point_id = len(self.points) + 1
-                    new_point = Point(
-                        id=point_id,
-                        position=draw_rect.center(),
-                        size=size,
-                        shape=self._draw_point_shape
-                    )
-                    self.points.append(new_point)
-                    
-                    # Memoriza o tamanho usado e DESATIVA modo desenho
-                    self._last_size_per_shape[self._draw_point_shape] = size
-                    self._draw_mode_active[self._draw_point_shape] = False
-                    self._draw_point_mode = False
-                    
-                    # Atualiza cursor para o modo normal de pontos
-                    self._set_point_cursor()
-                    
-                    self.scene.update()
-                    print(f"Ponto {self._draw_point_shape} criado - Tamanho: {size:.1f}px")
-                
-                self._draw_start = QPointF()
-                self._draw_end = QPointF()
-                    
             elif self._points_mode and not self._drag_start_pos.isNull():
                 move_distance = (event.pos() - self._drag_start_pos).manhattanLength()
                 if move_distance <= self._drag_threshold:
                     scene_pos = self.mapToScene(event.pos())
-                    
-                    # 👇 NOVO: Comportamento para cliques normais quando modo desenho está INATIVO
-                    current_shape = self._get_current_point_shape()
-                    if not self._draw_mode_active.get(current_shape, False):
-                        # Usa o último tamanho memorizado para esta forma
-                        last_size = self._last_size_per_shape.get(current_shape, 20)
-                        
-                        point_id = len(self.points) + 1
-                        new_point = Point(
-                            id=point_id,
-                            position=scene_pos,
-                            size=last_size,
-                            shape=current_shape
-                        )
-                        self.points.append(new_point)
-                        self.scene.update()
-                        print(f"Ponto {current_shape} criado - Tamanho: {last_size:.1f}px (repetido)")
-                    else:
-                        self.point_clicked.emit(scene_pos)
+                    self.point_clicked.emit(scene_pos)
             
             elif self._crop_mode and not self._crop_start.isNull() and not self._crop_end.isNull():
                 scene_pos = self.mapToScene(event.pos())
@@ -491,7 +345,7 @@ class ImageViewer(QGraphicsView):
             self._crop_end = QPointF()
             print("Modo recorte ativado - Arraste para selecionar a área")
         else:
-            self.update_cursor()
+            self._set_point_cursor() if self._points_mode else self.setCursor(Qt.CursorShape.ArrowCursor)
             self._crop_start = QPointF()
             self._crop_end = QPointF()
             self.scene.update()
@@ -504,7 +358,7 @@ class ImageViewer(QGraphicsView):
             self._current_point_shape = shape_type
             
         if enabled:
-            self.update_cursor()
+            self._set_point_cursor()
             current_size = self._get_current_point_size()
             print(f"Modo marcação de pontos ativado - Forma: {self._current_point_shape}, Tamanho: {current_size}px")
         else:
@@ -512,15 +366,10 @@ class ImageViewer(QGraphicsView):
             print("Modo marcação de pontos desativado")
     
     def update_cursor(self):
-        """Atualiza o cursor baseado no modo atual"""
+        """Atualiza o cursor baseado no modo e tamanho atual"""
         if self._points_mode:
-            current_shape = self._get_current_point_shape()
-            if self._draw_mode_active.get(current_shape, False):
-                # Modo desenho ativo - cursor de cruz
-                self.setCursor(Qt.CursorShape.CrossCursor)
-            else:
-                # Modo normal - cursor personalizado do ponto
-                self._set_point_cursor()
+            self._set_point_cursor()
+            print(f"Cursor atualizado - Tamanho: {self._get_current_point_size()}px")
     
     def _set_point_cursor(self):
         """Define cursor personalizado baseado na forma atual"""
@@ -533,7 +382,12 @@ class ImageViewer(QGraphicsView):
     def _create_circle_cursor(self):
         """Cria cursor personalizado para círculo com tamanho proporcional"""
         size = self._get_current_point_size()
+        # REMOVEU: cursor_size = max(24, int(size * 1.5 * self.zoom_factor))
+        #cursor_size = max(24, int(size * 1.5))  # Tamanho fixo baseado no tamanho do ponto
+        # APLICA o zoom no cálculo do tamanho do cursor
+        #zoom_adjusted_size = size * self.zoom_factor
         size = int(size * self.zoom_factor)
+        # Tamanho mínimo garantido para visibilidade
         cursor_size = max(24, int(size * 1.5))
                           
         pixmap = QPixmap(cursor_size, cursor_size)
@@ -564,14 +418,15 @@ class ImageViewer(QGraphicsView):
         """Cria cursor personalizado para retângulo com tamanho proporcional"""
         size = self._get_current_point_size()
         size = int(size * self.zoom_factor)
-        cursor_size = max(24, int(size * 1.5))
+        # REMOVEU: cursor_size = max(24, int(size * 1.5 * self.zoom_factor))
+        cursor_size = max(24, int(size * 1.5))  # Tamanho fixo baseado no tamanho do ponto
         pixmap = QPixmap(cursor_size, cursor_size)
         pixmap.fill(Qt.GlobalColor.transparent)
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Retângulo vermelho com tamanho proporcional
+        # Retângulo azul com tamanho proporcional
         painter.setPen(QPen(QColor(255, 0, 0), 2))
         painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
         
