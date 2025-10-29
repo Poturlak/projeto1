@@ -1,0 +1,21 @@
+# GUI e Interface
+PyQt6>=6.6.1
+PySide6>=6.6.1  # Alternativa ao PyQt6
+
+# Processamento de Imagem
+opencv-python>=4.8.1.78
+Pillow>=10.0.0
+
+# Gráficos
+matplotlib>=3.7.2
+pyqtgraph>=0.13.3
+
+# Banco de Dados e Serial
+pyserial>=3.5
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.7
+
+# Utilitários
+numpy>=1.24.3
+pandas>=2.0.3
+python-dateutil>=2.8.2
