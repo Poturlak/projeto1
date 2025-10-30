@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QPushButton, QLabel, QStatusBar,
                             QToolBar, QFrame, QSplitter, QSpacerItem, QSizePolicy,
                             QFileDialog, QMessageBox, QDialog, QDialogButtonBox,
-                            QSpinBox, QCheckBox, QFormLayout, QStackedWidget)
+                            QSpinBox, QCheckBox, QFormLayout, QStackedWidget, QSlider)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QCursor, QPixmap, QPainter, QColor, QPen, QBrush
 from PyQt6.QtCore import QPointF
@@ -47,6 +47,7 @@ except ImportError:
             super().__init__()
             self._crop_mode = False
             self._points_mode = False
+            self._show_preview = False
             
         def set_pixmap(self, pixmap): pass
         def set_points(self, points): pass
@@ -60,6 +61,7 @@ except ImportError:
         def actual_size(self): pass
         def set_point_manager(self, point_manager): pass
         def update_cursor(self): pass
+        def set_preview_visible(self, visible): pass
         
     def pil_to_pixmap(pil_image):
         return QPixmap()
@@ -78,6 +80,8 @@ except ImportError:
             self.points = []
             self.current_shape = 'circle'
             self.current_size = 20
+            self.current_width = 20
+            self.current_height = 20
             self.points_changed = pyqtSignal(list)
             
         def add_point(self, position):
@@ -85,6 +89,9 @@ except ImportError:
             self.points.append(point)
             self.points_changed.emit(self.points)
             return point
+        
+        def swap_rectangle_dimensions(self):
+            self.current_width, self.current_height = self.current_height, self.current_width
             
     class PointsTable(QWidget):
         def __init__(self):
@@ -172,7 +179,7 @@ class MainWindow(QMainWindow):
         btn_zoom_in.clicked.connect(self.zoom_in)
         main_toolbar.addWidget(btn_zoom_in)
 
-        btn_fit = QPushButton('📐')
+        btn_fit = QPushButton('🔍')
         btn_fit.setToolTip("Ajustar à Tela")
         btn_fit.setFixedSize(30, 30)
         btn_fit.clicked.connect(self.ajustar_tela)
@@ -190,18 +197,20 @@ class MainWindow(QMainWindow):
         main_toolbar.addWidget(btn_config)
         
     def setup_dynamic_toolbars(self):
-        # TOOLBAR EDIÇÃO - ALTURA MÍNIMA
+        """Cria toolbars dinâmicas para círculo e retângulo - VERSÃO ATUALIZADA"""
+        
+        # ========== TOOLBAR DE EDIÇÃO ==========
         self.toolbar_edicao = QWidget()
-        self.toolbar_edicao.setFixedHeight(28)  # ALTURA FIXA
+        self.toolbar_edicao.setFixedHeight(28)
         layout_edicao = QHBoxLayout()
-        layout_edicao.setContentsMargins(2, 1, 2, 1)  # MARGENS MÍNIMAS
-        layout_edicao.setSpacing(2)  # ESPAÇAMENTO MÍNIMO
+        layout_edicao.setContentsMargins(2, 1, 2, 1)
+        layout_edicao.setSpacing(2)
         self.toolbar_edicao.setLayout(layout_edicao)
         
         # Botões COMPACTOS para edição
-        btn_abrir = QPushButton("📁")
+        btn_abrir = QPushButton("📂")
         btn_abrir.setToolTip("Abrir Imagem")
-        btn_abrir.setFixedSize(30, 24)  # BOTÕES MAIS COMPACTOS
+        btn_abrir.setFixedSize(30, 24)
         btn_salvar = QPushButton("💾")
         btn_salvar.setToolTip("Salvar")
         btn_salvar.setFixedSize(30, 24)
@@ -223,52 +232,194 @@ class MainWindow(QMainWindow):
         layout_edicao.addWidget(btn_refazer)
         layout_edicao.addStretch()
         
-        # TOOLBAR MARCAÇÃO - ALTURA MÍNIMA
-        self.toolbar_marcacao = QWidget()
-        self.toolbar_marcacao.setFixedHeight(28)  # ALTURA FIXA
-        layout_marcacao = QHBoxLayout()
-        layout_marcacao.setContentsMargins(2, 1, 2, 1)  # MARGENS MÍNIMAS
-        layout_marcacao.setSpacing(2)  # ESPAÇAMENTO MÍNIMO
-        self.toolbar_marcacao.setLayout(layout_marcacao)
+        # ========== TOOLBAR PARA CÍRCULO ==========
+        self.toolbar_circulo = QWidget()
+        self.toolbar_circulo.setFixedHeight(35)
+        layout_circulo = QHBoxLayout()
+        layout_circulo.setContentsMargins(5, 2, 5, 2)
+        layout_circulo.setSpacing(10)
+        self.toolbar_circulo.setLayout(layout_circulo)
         
-        # Botões COMPACTOS para marcação
+        # Botões de seleção
         self.btn_circulo = QPushButton("⭕")
-        self.btn_circulo.setToolTip("Círculo")
-        self.btn_circulo.setFixedSize(30, 24)
-        self.btn_retangulo = QPushButton("⬜")
-        self.btn_retangulo.setToolTip("Retângulo")
-        self.btn_retangulo.setFixedSize(30, 24)
-        self.btn_mais = QPushButton("➕")
-        self.btn_mais.setToolTip("Aumentar tamanho")
-        self.btn_mais.setFixedSize(30, 24)
-        self.btn_menos = QPushButton("➖")
-        self.btn_menos.setToolTip("Diminuir tamanho")
-        self.btn_menos.setFixedSize(30, 24)
-        self.btn_girar = QPushButton("🔄")
-        self.btn_girar.setToolTip("Girar")
-        self.btn_girar.setFixedSize(30, 24)
-        self.btn_comprimento = QPushButton("📏")
-        self.btn_comprimento.setToolTip("Comprimento")
-        self.btn_comprimento.setFixedSize(30, 24)
-        
+        self.btn_circulo.setToolTip("Modo Círculo")
+        self.btn_circulo.setCheckable(True)
+        self.btn_circulo.setChecked(True)
+        self.btn_circulo.setFixedSize(35, 30)
         self.btn_circulo.clicked.connect(self.definir_modo_circulo)
+        
+        self.btn_retangulo_circle = QPushButton("⬜")
+        self.btn_retangulo_circle.setToolTip("Modo Retângulo")
+        self.btn_retangulo_circle.setCheckable(True)
+        self.btn_retangulo_circle.setFixedSize(35, 30)
+        self.btn_retangulo_circle.clicked.connect(self.definir_modo_retangulo)
+        
+        layout_circulo.addWidget(self.btn_circulo)
+        layout_circulo.addWidget(self.btn_retangulo_circle)
+        layout_circulo.addWidget(self._create_separator())
+        
+        # Slider de tamanho para círculo
+        label_tamanho = QLabel("Tamanho:")
+        layout_circulo.addWidget(label_tamanho)
+        
+        self.slider_tamanho_circulo = QSlider(Qt.Orientation.Horizontal)
+        self.slider_tamanho_circulo.setMinimum(10)
+        self.slider_tamanho_circulo.setMaximum(200)
+        self.slider_tamanho_circulo.setValue(20)
+        self.slider_tamanho_circulo.setFixedWidth(200)
+        self.slider_tamanho_circulo.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_tamanho_circulo.setTickInterval(20)
+        
+        # Preview visível enquanto arrasta o slider
+        self.slider_tamanho_circulo.sliderPressed.connect(self._on_slider_pressed)
+        self.slider_tamanho_circulo.sliderReleased.connect(self._on_slider_released)
+        self.slider_tamanho_circulo.valueChanged.connect(self._on_circulo_size_changed)
+        
+        layout_circulo.addWidget(self.slider_tamanho_circulo)
+        
+        self.label_tamanho_circulo = QLabel("20px")
+        self.label_tamanho_circulo.setMinimumWidth(50)
+        self.label_tamanho_circulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_circulo.addWidget(self.label_tamanho_circulo)
+        
+        layout_circulo.addStretch()
+        
+        # ========== TOOLBAR PARA RETÂNGULO ==========
+        self.toolbar_retangulo = QWidget()
+        self.toolbar_retangulo.setFixedHeight(35)
+        layout_retangulo = QHBoxLayout()
+        layout_retangulo.setContentsMargins(5, 2, 5, 2)
+        layout_retangulo.setSpacing(10)
+        self.toolbar_retangulo.setLayout(layout_retangulo)
+        
+        # Botões de seleção
+        self.btn_circulo_rect = QPushButton("⭕")
+        self.btn_circulo_rect.setToolTip("Modo Círculo")
+        self.btn_circulo_rect.setCheckable(True)
+        self.btn_circulo_rect.setFixedSize(35, 30)
+        self.btn_circulo_rect.clicked.connect(self.definir_modo_circulo)
+        
+        self.btn_retangulo = QPushButton("⬜")
+        self.btn_retangulo.setToolTip("Modo Retângulo")
+        self.btn_retangulo.setCheckable(True)
+        self.btn_retangulo.setChecked(True)
+        self.btn_retangulo.setFixedSize(35, 30)
         self.btn_retangulo.clicked.connect(self.definir_modo_retangulo)
-        self.btn_mais.clicked.connect(self.aumentar_tamanho_ponto)
-        self.btn_menos.clicked.connect(self.diminuir_tamanho_ponto)
-        self.btn_girar.clicked.connect(self.girar_retangulo)
-        self.btn_comprimento.clicked.connect(self.definir_comprimento)
         
-        layout_marcacao.addWidget(self.btn_circulo)
-        layout_marcacao.addWidget(self.btn_retangulo)
-        layout_marcacao.addWidget(self.btn_mais)
-        layout_marcacao.addWidget(self.btn_menos)
-        layout_marcacao.addWidget(self.btn_girar)
-        layout_marcacao.addWidget(self.btn_comprimento)
-        layout_marcacao.addStretch()
+        layout_retangulo.addWidget(self.btn_circulo_rect)
+        layout_retangulo.addWidget(self.btn_retangulo)
+        layout_retangulo.addWidget(self._create_separator())
         
+        # Slider de LARGURA
+        label_largura = QLabel("Largura:")
+        layout_retangulo.addWidget(label_largura)
+        
+        self.slider_largura = QSlider(Qt.Orientation.Horizontal)
+        self.slider_largura.setMinimum(10)
+        self.slider_largura.setMaximum(200)
+        self.slider_largura.setValue(20)
+        self.slider_largura.setFixedWidth(150)
+        self.slider_largura.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_largura.setTickInterval(20)
+        
+        self.slider_largura.sliderPressed.connect(self._on_slider_pressed)
+        self.slider_largura.sliderReleased.connect(self._on_slider_released)
+        self.slider_largura.valueChanged.connect(self._on_largura_changed)
+        
+        layout_retangulo.addWidget(self.slider_largura)
+        
+        self.label_largura = QLabel("20px")
+        self.label_largura.setMinimumWidth(50)
+        self.label_largura.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_retangulo.addWidget(self.label_largura)
+        
+        layout_retangulo.addWidget(self._create_separator())
+        
+        # Slider de ALTURA
+        label_altura = QLabel("Altura:")
+        layout_retangulo.addWidget(label_altura)
+        
+        self.slider_altura = QSlider(Qt.Orientation.Horizontal)
+        self.slider_altura.setMinimum(10)
+        self.slider_altura.setMaximum(200)
+        self.slider_altura.setValue(20)
+        self.slider_altura.setFixedWidth(150)
+        self.slider_altura.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_altura.setTickInterval(20)
+        
+        self.slider_altura.sliderPressed.connect(self._on_slider_pressed)
+        self.slider_altura.sliderReleased.connect(self._on_slider_released)
+        self.slider_altura.valueChanged.connect(self._on_altura_changed)
+        
+        layout_retangulo.addWidget(self.slider_altura)
+        
+        self.label_altura = QLabel("20px")
+        self.label_altura.setMinimumWidth(50)
+        self.label_altura.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_retangulo.addWidget(self.label_altura)
+        
+        layout_retangulo.addWidget(self._create_separator())
+        
+        # Botão trocar dimensões
+        btn_trocar = QPushButton("↔️⇅")
+        btn_trocar.setToolTip("Trocar Largura ↔ Altura")
+        btn_trocar.setFixedSize(40, 30)
+        btn_trocar.clicked.connect(self.trocar_dimensoes)
+        layout_retangulo.addWidget(btn_trocar)
+        
+        layout_retangulo.addStretch()
+        
+        # ========== ADICIONAR AO STACK ==========
         self.toolbar_stack.addWidget(self.toolbar_edicao)
-        self.toolbar_stack.addWidget(self.toolbar_marcacao)
+        self.toolbar_stack.addWidget(self.toolbar_circulo)
+        self.toolbar_stack.addWidget(self.toolbar_retangulo)
+        
+        # Iniciar no modo edição
         self.toolbar_stack.setCurrentWidget(self.toolbar_edicao)
+
+    def _create_separator(self):
+        """Cria separador vertical para toolbar"""
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        return separator
+
+    # ========== CALLBACKS DOS SLIDERS ==========
+
+    def _on_slider_pressed(self):
+        """Chamado quando usuário CLICA no slider - MOSTRA PREVIEW"""
+        self.image_viewer.set_preview_visible(True)
+        print("🎚️ Slider pressionado - Preview ativado")
+
+    def _on_slider_released(self):
+        """Chamado quando usuário SOLTA o slider - ESCONDE PREVIEW"""
+        self.image_viewer.set_preview_visible(False)
+        print("🎚️ Slider solto - Preview desativado")
+
+    def _on_circulo_size_changed(self, value):
+        """Chamado quando slider de círculo muda"""
+        self.point_manager.current_size = value
+        self.label_tamanho_circulo.setText(f"{value}px")
+        self.image_viewer.update_cursor()
+        # Se preview está visível, atualiza
+        if hasattr(self.image_viewer, '_show_preview') and self.image_viewer._show_preview:
+            self.image_viewer.scene.update()
+
+    def _on_largura_changed(self, value):
+        """Chamado quando slider de largura muda"""
+        self.point_manager.current_width = value
+        self.label_largura.setText(f"{value}px")
+        self.image_viewer.update_cursor()
+        if hasattr(self.image_viewer, '_show_preview') and self.image_viewer._show_preview:
+            self.image_viewer.scene.update()
+
+    def _on_altura_changed(self, value):
+        """Chamado quando slider de altura muda"""
+        self.point_manager.current_height = value
+        self.label_altura.setText(f"{value}px")
+        self.image_viewer.update_cursor()
+        if hasattr(self.image_viewer, '_show_preview') and self.image_viewer._show_preview:
+            self.image_viewer.scene.update()
         
     def setup_central_widget(self):
         central_widget = QWidget()
@@ -279,7 +430,7 @@ class MainWindow(QMainWindow):
         
         # TOOLBAR DINÂMICA - ALTURA FIXA
         self.setup_dynamic_toolbars()
-        self.toolbar_stack.setFixedHeight(30)  # ALTURA FIXA PARA O STACKED WIDGET
+        self.toolbar_stack.setFixedHeight(37)
         layout.addWidget(self.toolbar_stack)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -372,7 +523,7 @@ class MainWindow(QMainWindow):
         status_bar.showMessage("Pronto para iniciar")
         
         self.status_hardware = QLabel("🔴 Hardware")
-        self.status_medicao = QLabel("⏹️ Medição Parada")
+        self.status_medicao = QLabel("ℹ️ Medição Parada")
         self.status_ponto = QLabel("Ponto: --/--")
         self.status_imagem = QLabel("🖼️ Sem imagem")
         self.status_zoom = QLabel("Zoom: 100%")
@@ -387,16 +538,8 @@ class MainWindow(QMainWindow):
 
     def connect_signals(self):
         # Conectar sinais apenas se existirem
-        # Conectar zoom changed para atualizar cursor
-        # Conectar zoom changed para atualizar cursor
         if hasattr(self.image_viewer, 'zoom_changed'):
             self.image_viewer.zoom_changed.connect(self._on_zoom_changed_update_cursor)
-
-        # E adicione este método:
-        def on_zoom_changed_for_cursor(self, zoom_level):
-            """Atualiza cursor quando o zoom muda"""
-            if hasattr(self.image_viewer, '_points_mode') and self.image_viewer._points_mode:
-                self.image_viewer.update_cursor()
         if hasattr(self.image_editor, 'image_updated'):
             self.image_editor.image_updated.connect(self.on_image_updated)
         if hasattr(self.image_editor, 'error_occurred'):
@@ -440,54 +583,75 @@ class MainWindow(QMainWindow):
         self.current_mode = "marcacao"
         self.btn_editar.setChecked(False)
         self.btn_marcar.setChecked(True)
-        self.toolbar_stack.setCurrentWidget(self.toolbar_marcacao)
-        self.image_viewer.set_points_mode(True)
+        
+        # Mostrar toolbar apropriada baseada na forma atual
+        if self.point_manager.current_shape == 'circle':
+            self.toolbar_stack.setCurrentWidget(self.toolbar_circulo)
+        else:
+            self.toolbar_stack.setCurrentWidget(self.toolbar_retangulo)
+        
+        self.image_viewer.set_points_mode(True, self.point_manager.current_shape)
         self.statusBar().showMessage("Modo: Marcação de Pontos - Clique na imagem para adicionar pontos")
         print("🎯 Modo Marcação ativado")
 
-    # === MÉTODOS DOS BOTÕES DE MARCAÇÃO ===
+    # ========== MÉTODOS DOS BOTÕES DE FORMA ==========
     
     def definir_modo_circulo(self):
+        """Ativa modo círculo e troca toolbar"""
         self.point_manager.current_shape = 'circle'
+        
+        # Atualizar botões de ambas as toolbars
+        self.btn_circulo.setChecked(True)
+        self.btn_circulo_rect.setChecked(True)
+        self.btn_retangulo_circle.setChecked(False)
+        self.btn_retangulo.setChecked(False)
+        
+        # Trocar para toolbar de círculo
+        self.toolbar_stack.setCurrentWidget(self.toolbar_circulo)
+        
         self.image_viewer.set_points_mode(True, 'circle')
-        self.statusBar().showMessage("Modo: Círculo - Clique na imagem para adicionar pontos circulares")
-        print("🎯 Modo Círculo ativado")
-    
+        self.statusBar().showMessage(f"Modo: Círculo - Ø {self.point_manager.current_size}px")
+        print(f"⭕ Modo Círculo ativado - Ø {self.point_manager.current_size}px")
+
     def definir_modo_retangulo(self):
+        """Ativa modo retângulo e troca toolbar"""
         self.point_manager.current_shape = 'rectangle'
+        
+        # Atualizar botões de ambas as toolbars
+        self.btn_circulo.setChecked(False)
+        self.btn_circulo_rect.setChecked(False)
+        self.btn_retangulo_circle.setChecked(True)
+        self.btn_retangulo.setChecked(True)
+        
+        # Trocar para toolbar de retângulo
+        self.toolbar_stack.setCurrentWidget(self.toolbar_retangulo)
+        
         self.image_viewer.set_points_mode(True, 'rectangle')
-        self.statusBar().showMessage("Modo: Retângulo - Clique na imagem para adicionar pontos retangulares")
-        print("🎯 Modo Retângulo ativado")
-    
-    def aumentar_tamanho_ponto(self):
-        if self.point_manager.current_size < 100:  # Limite máximo
-            self.point_manager.current_size += 5
-            self.statusBar().showMessage(f"Tamanho do ponto: {self.point_manager.current_size}px")
-            print(f"➕ Tamanho do ponto aumentado para {self.point_manager.current_size}px")
-            # Atualizar o cursor
-            self.image_viewer.update_cursor()
-        else:
-            self.statusBar().showMessage("Tamanho máximo atingido (100px)")
+        self.statusBar().showMessage(
+            f"Modo: Retângulo - {self.point_manager.current_width}×{self.point_manager.current_height}px"
+        )
+        print(f"⬜ Modo Retângulo ativado - {self.point_manager.current_width}×{self.point_manager.current_height}px")
 
-    def diminuir_tamanho_ponto(self):
-        if self.point_manager.current_size > 10:  # Limite mínimo
-            self.point_manager.current_size -= 5
-            self.statusBar().showMessage(f"Tamanho do ponto: {self.point_manager.current_size}px")
-            print(f"➖ Tamanho do ponto diminuído para {self.point_manager.current_size}px")
-            # Atualizar o cursor
-            self.image_viewer.update_cursor()
-        else:
-            self.statusBar().showMessage("Tamanho mínimo atingido (10px)")
-    
-    def girar_retangulo(self):
-        self.statusBar().showMessage("Função girar retângulo - Em desenvolvimento")
-        print("🔄 Girar retângulo")
-    
-    def definir_comprimento(self):
-        self.statusBar().showMessage("Função comprimento - Em desenvolvimento")
-        print("📏 Definir comprimento")
+    def trocar_dimensoes(self):
+        """Troca largura e altura do retângulo"""
+        self.point_manager.swap_rectangle_dimensions()
+        
+        # Atualizar sliders
+        self.slider_largura.setValue(self.point_manager.current_width)
+        self.slider_altura.setValue(self.point_manager.current_height)
+        
+        # Atualizar labels
+        self.label_largura.setText(f"{self.point_manager.current_width}px")
+        self.label_altura.setText(f"{self.point_manager.current_height}px")
+        
+        # Atualizar cursor
+        self.image_viewer.update_cursor()
+        
+        self.statusBar().showMessage(
+            f"Dimensões trocadas: {self.point_manager.current_width}×{self.point_manager.current_height}px"
+        )
 
-    # === MÉTODOS DE IMAGEM ===
+    # ========== MÉTODOS DE IMAGEM ==========
     
     def abrir_imagem(self):
         filepath, _ = QFileDialog.getOpenFileName(
@@ -727,7 +891,7 @@ class MainWindow(QMainWindow):
         hardware_menu.addAction('Testar Comunicação', self.testar_comunicacao)
         hardware_menu.addAction('Calibrar', self.calibrar_hardware)
 
-    # === MÉTODOS EXISTENTES MANTIDOS ===
+    # ========== MÉTODOS EXISTENTES MANTIDOS ==========
     
     def modo_teste(self):
         self.statusBar().showMessage("Entrando no modo de teste...")

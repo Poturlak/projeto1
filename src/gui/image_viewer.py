@@ -1,5 +1,5 @@
 """
-Visualizador de imagem com zoom, pan e navegação - Implementação Completa
+Visualizador de imagem com zoom, pan, navegação e preview de pontos - Versão Atualizada
 """
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QApplication
 from PyQt6.QtGui import (QPixmap, QWheelEvent, QMouseEvent, QPainter, 
@@ -44,6 +44,9 @@ class ImageViewer(QGraphicsView):
         self._drag_start_pos = QPointF()
         self._drag_threshold = 5
         
+        # NOVO: Controle de preview
+        self._show_preview = False
+        
         # Pontos para desenhar
         self.points: List[Point] = []
         
@@ -64,7 +67,7 @@ class ImageViewer(QGraphicsView):
         self.setFrameStyle(0)
         
     def drawForeground(self, painter, rect):
-        """Desenha o retângulo de seleção de recorte E OS PONTOS"""
+        """Desenha o retângulo de seleção de recorte, OS PONTOS e o PREVIEW"""
         # Desenha recorte se ativo
         if self._crop_mode and not self._crop_start.isNull() and not self._crop_end.isNull():
             pen = QPen(QColor(255, 0, 0))
@@ -79,42 +82,104 @@ class ImageViewer(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for point in self.points:
             pos = point.position
-            size = point.size
             
-            # CORREÇÃO: Remove self.zoom_factor - usa apenas proporção do tamanho do ponto
-            font_size = max(8, int(size * 0.25))  # 25% do tamanho do ponto, mínimo 8px
+            font_size = max(8, int(point.size * 0.25))
             font = painter.font()
             font.setPointSize(font_size)
-            font.setWeight(QFont.Weight.Bold)  # 👈 AQUI ESTÁ A CORREÇÃO - FONTE NEGRITO
+            font.setWeight(QFont.Weight.Bold)
             painter.setFont(font)
             
             if point.shape == 'circle':
-                # Círculo vermelho com MENOS transparência
                 painter.setPen(QPen(QColor(255, 0, 0), 2))
                 painter.setBrush(QColor(255, 0, 0, 120))
-                painter.drawEllipse(pos, size/2, size/2)
+                painter.drawEllipse(pos, point.size/2, point.size/2)
                 
-                # Texto BRANCO com FONTE MAIS ESPESSA
-                painter.setPen(QPen(QColor(255, 255, 255), 1))  # Espessura aumentada para 2
-                text_rect = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
+                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                text_rect = QRectF(pos.x() - point.size/2, pos.y() - point.size/2, point.size, point.size)
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
                 
             elif point.shape == 'rectangle':
-                # Retângulo vermelho com MENOS transparência
                 painter.setPen(QPen(QColor(255, 0, 0), 1))
                 painter.setBrush(QColor(255, 0, 0, 120))
-                rect_draw = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
+                rect_draw = QRectF(pos.x() - point.width/2, pos.y() - point.height/2, point.width, point.height)
                 painter.drawRect(rect_draw)
                 
-                # Texto BRANCO com FONTE MAIS ESPESSA
-                painter.setPen(QPen(QColor(255, 255, 255), 2))  # Espessura aumentada para 2
-                text_rect = QRectF(pos.x() - size/2, pos.y() - size/2, size, size)
+                painter.setPen(QPen(QColor(255, 255, 255), 2))
+                text_rect = QRectF(pos.x() - point.width/2, pos.y() - point.height/2, point.width, point.height)
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
+        
+        # NOVO: DESENHA PREVIEW CENTRALIZADO
+        if self._points_mode and self._show_preview:
+            self._draw_preview_overlay(painter)
+    
+    def _draw_preview_overlay(self, painter):
+        """Desenha preview do ponto no centro da viewport"""
+        # Obter centro da viewport visível
+        viewport_center = self.viewport().rect().center()
+        scene_center = self.mapToScene(viewport_center)
+        
+        # Semi-transparente para não atrapalhar
+        painter.setOpacity(0.8)
+        
+        shape = self._get_current_point_shape()
+        
+        if shape == 'circle':
+            size = self._get_current_point_size()
+            
+            # Círculo preview AZUL (diferente dos pontos vermelhos)
+            painter.setPen(QPen(QColor(0, 150, 255), 3))
+            painter.setBrush(QColor(0, 150, 255, 100))
+            painter.drawEllipse(scene_center, size/2, size/2)
+            
+            # Texto indicando tamanho
+            painter.setPen(QColor(255, 255, 255))
+            font = painter.font()
+            font.setPointSize(14)
+            font.setBold(True)
+            painter.setFont(font)
+            
+            # Texto ABAIXO do círculo
+            text_rect = QRectF(scene_center.x() - 60, scene_center.y() + size/2 + 10, 120, 30)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"Ø {int(size)}px")
+            
+        elif shape == 'rectangle':
+            width = self._get_current_point_width()
+            height = self._get_current_point_height()
+            
+            # Retângulo preview AZUL
+            painter.setPen(QPen(QColor(0, 150, 255), 3))
+            painter.setBrush(QColor(0, 150, 255, 100))
+            rect_preview = QRectF(
+                scene_center.x() - width/2,
+                scene_center.y() - height/2,
+                width,
+                height
+            )
+            painter.drawRect(rect_preview)
+            
+            # Texto com dimensões
+            painter.setPen(QColor(255, 255, 255))
+            font = painter.font()
+            font.setPointSize(14)
+            font.setBold(True)
+            painter.setFont(font)
+            
+            # Texto ABAIXO do retângulo
+            text_rect = QRectF(scene_center.x() - 60, scene_center.y() + height/2 + 10, 120, 30)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{int(width)}×{int(height)}px")
+        
+        painter.setOpacity(1.0)
+    
+    def set_preview_visible(self, visible: bool):
+        """Define se o preview deve ser exibido"""
+        self._show_preview = visible
+        self.scene.update()
+        print(f"Preview: {'Visível' if visible else 'Oculto'}")
     
     def set_points(self, points: List[Point]):
         """Define os pontos a serem exibidos"""
         self.points = points
-        self.scene.update()  # Força redesenho
+        self.scene.update()
     
     def set_point_manager(self, point_manager):
         """Define o point_manager para sincronizar tamanhos"""
@@ -125,14 +190,28 @@ class ImageViewer(QGraphicsView):
         if self.point_manager:
             return self.point_manager.current_size
         else:
-            return 20  # Tamanho padrão
+            return 20
+    
+    def _get_current_point_width(self):
+        """Obtém a largura atual do retângulo do PointManager"""
+        if self.point_manager:
+            return self.point_manager.current_width
+        else:
+            return 20
+    
+    def _get_current_point_height(self):
+        """Obtém a altura atual do retângulo do PointManager"""
+        if self.point_manager:
+            return self.point_manager.current_height
+        else:
+            return 20
     
     def _get_current_point_shape(self):
         """Obtém a forma atual do ponto do PointManager"""
         if self.point_manager:
             return self.point_manager.current_shape
         else:
-            return 'circle'  # Forma padrão
+            return 'circle'
     
     def load_image(self, image_path: str) -> bool:
         """Carrega imagem do arquivo"""
@@ -174,18 +253,107 @@ class ImageViewer(QGraphicsView):
         """Verifica se há imagem carregada"""
         return self.pixmap_item is not None and not self.pixmap_item.pixmap().isNull()
     
-    # === ZOOM E NAVEGAÇÃO ===
+    # === ZOOM E NAVEGAÇÃO COM MODIFICADORES ===
     
     def wheelEvent(self, event: QWheelEvent):
-        """Handle zoom com roda do mouse"""
+        """Handle zoom com roda do mouse E ajustes de tamanho com modificadores"""
         if not self.has_image():
             return
-            
-        if event.angleDelta().y() > 0:
+        
+        modifiers = QApplication.keyboardModifiers()
+        delta = event.angleDelta().y()
+        
+        # SHIFT + Roda = Ajusta tamanho do ponto (círculo) ou largura (retângulo)
+        if modifiers == Qt.KeyboardModifier.ShiftModifier and self._points_mode:
+            if delta > 0:
+                self._adjust_point_size(increase=True)
+            else:
+                self._adjust_point_size(increase=False)
+            event.accept()
+            return
+        
+        # CTRL + Roda = Ajusta LARGURA do retângulo
+        if modifiers == Qt.KeyboardModifier.ControlModifier and self._points_mode:
+            if self._get_current_point_shape() == 'rectangle':
+                if delta > 0:
+                    self._adjust_rectangle_width(increase=True)
+                else:
+                    self._adjust_rectangle_width(increase=False)
+            event.accept()
+            return
+        
+        # ALT + Roda = Ajusta ALTURA do retângulo
+        if modifiers == Qt.KeyboardModifier.AltModifier and self._points_mode:
+            if self._get_current_point_shape() == 'rectangle':
+                if delta > 0:
+                    self._adjust_rectangle_height(increase=True)
+                else:
+                    self._adjust_rectangle_height(increase=False)
+            event.accept()
+            return
+        
+        # SEM MODIFICADOR = Zoom normal
+        if delta > 0:
             self.zoom_in()
         else:
             self.zoom_out()
         event.accept()
+    
+    def _adjust_point_size(self, increase: bool):
+        """Ajusta tamanho do ponto (círculo ou largura do retângulo)"""
+        if not self.point_manager:
+            return
+        
+        shape = self._get_current_point_shape()
+        
+        if shape == 'circle':
+            if increase and self.point_manager.current_size < 200:
+                self.point_manager.current_size += 5
+            elif not increase and self.point_manager.current_size > 10:
+                self.point_manager.current_size -= 5
+            print(f"Tamanho círculo: {self.point_manager.current_size}px")
+        
+        elif shape == 'rectangle':
+            if increase and self.point_manager.current_width < 200:
+                self.point_manager.current_width += 5
+            elif not increase and self.point_manager.current_width > 10:
+                self.point_manager.current_width -= 5
+            print(f"Largura retângulo: {self.point_manager.current_width}px")
+        
+        # Atualizar cursor e preview
+        self.update_cursor()
+        self.set_preview_visible(True)
+        self.scene.update()
+    
+    def _adjust_rectangle_width(self, increase: bool):
+        """Ajusta largura do retângulo"""
+        if not self.point_manager:
+            return
+        
+        if increase and self.point_manager.current_width < 200:
+            self.point_manager.current_width += 5
+        elif not increase and self.point_manager.current_width > 10:
+            self.point_manager.current_width -= 5
+        
+        print(f"Largura: {self.point_manager.current_width}px")
+        self.update_cursor()
+        self.set_preview_visible(True)
+        self.scene.update()
+    
+    def _adjust_rectangle_height(self, increase: bool):
+        """Ajusta altura do retângulo"""
+        if not self.point_manager:
+            return
+        
+        if increase and self.point_manager.current_height < 200:
+            self.point_manager.current_height += 5
+        elif not increase and self.point_manager.current_height > 10:
+            self.point_manager.current_height -= 5
+        
+        print(f"Altura: {self.point_manager.current_height}px")
+        self.update_cursor()
+        self.set_preview_visible(True)
+        self.scene.update()
     
     def zoom_in(self):
         """Aumenta zoom"""
@@ -207,7 +375,6 @@ class ImageViewer(QGraphicsView):
         self.resetTransform()
         self.scale(self.zoom_factor, self.zoom_factor)
         self.zoom_changed.emit(self.zoom_factor)
-        # ATUALIZA O CURSOR SE ESTIVER NO MODO PONTOS
         if self._points_mode:
             self.update_cursor()
     
@@ -229,7 +396,47 @@ class ImageViewer(QGraphicsView):
     def get_current_scale(self) -> float:
         return self.zoom_factor
     
-    # === CONTROLE DE MOUSE ATUALIZADO ===
+    # === ATALHOS DE TECLADO ===
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle teclas W/S/A/D para ajuste de dimensões"""
+        if self._points_mode:
+            shape = self._get_current_point_shape()
+            
+            # W = Aumentar largura (retângulo) ou diâmetro (círculo)
+            if event.key() == Qt.Key.Key_W:
+                self._adjust_point_size(increase=True)
+                event.accept()
+                return
+            
+            # S = Diminuir largura (retângulo) ou diâmetro (círculo)
+            elif event.key() == Qt.Key.Key_S:
+                self._adjust_point_size(increase=False)
+                event.accept()
+                return
+            
+            # A = Diminuir altura (retângulo apenas)
+            elif event.key() == Qt.Key.Key_A and shape == 'rectangle':
+                self._adjust_rectangle_height(increase=False)
+                event.accept()
+                return
+            
+            # D = Aumentar altura (retângulo apenas)
+            elif event.key() == Qt.Key.Key_D and shape == 'rectangle':
+                self._adjust_rectangle_height(increase=True)
+                event.accept()
+                return
+        
+        # ESC = Cancelar recorte
+        if event.key() == Qt.Key.Key_Escape and self._crop_mode:
+            self.set_crop_mode(False)
+            print("Recorte cancelado pelo usuário")
+            event.accept()
+            return
+        
+        super().keyPressEvent(event)
+    
+    # === CONTROLE DE MOUSE ===
     
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press - SUPORTA CLIQUE PARA PONTOS"""
@@ -327,7 +534,7 @@ class ImageViewer(QGraphicsView):
         self._drag_start_pos = QPointF()
         super().mouseReleaseEvent(event)
     
-    # === MODOS DE INTERAÇÃO ATUALIZADOS ===
+    # === MODOS DE INTERAÇÃO ===
     
     def set_pan_mode(self, enabled: bool):
         """Ativa/desativa modo pan"""
@@ -359,17 +566,23 @@ class ImageViewer(QGraphicsView):
             
         if enabled:
             self._set_point_cursor()
-            current_size = self._get_current_point_size()
-            print(f"Modo marcação de pontos ativado - Forma: {self._current_point_shape}, Tamanho: {current_size}px")
+            if self._get_current_point_shape() == 'circle':
+                size = self._get_current_point_size()
+                print(f"Modo marcação - Círculo: Ø {size}px")
+            else:
+                width = self._get_current_point_width()
+                height = self._get_current_point_height()
+                print(f"Modo marcação - Retângulo: {width}×{height}px")
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
-            print("Modo marcação de pontos desativado")
+            self._show_preview = False
+            self.scene.update()
+            print("Modo marcação desativado")
     
     def update_cursor(self):
         """Atualiza o cursor baseado no modo e tamanho atual"""
         if self._points_mode:
             self._set_point_cursor()
-            print(f"Cursor atualizado - Tamanho: {self._get_current_point_size()}px")
     
     def _set_point_cursor(self):
         """Define cursor personalizado baseado na forma atual"""
@@ -382,12 +595,7 @@ class ImageViewer(QGraphicsView):
     def _create_circle_cursor(self):
         """Cria cursor personalizado para círculo com tamanho proporcional"""
         size = self._get_current_point_size()
-        # REMOVEU: cursor_size = max(24, int(size * 1.5 * self.zoom_factor))
-        #cursor_size = max(24, int(size * 1.5))  # Tamanho fixo baseado no tamanho do ponto
-        # APLICA o zoom no cálculo do tamanho do cursor
-        #zoom_adjusted_size = size * self.zoom_factor
         size = int(size * self.zoom_factor)
-        # Tamanho mínimo garantido para visibilidade
         cursor_size = max(24, int(size * 1.5))
                           
         pixmap = QPixmap(cursor_size, cursor_size)
@@ -396,19 +604,16 @@ class ImageViewer(QGraphicsView):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Círculo vermelho com tamanho proporcional
         painter.setPen(QPen(QColor(255, 0, 0), 2))
         painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
         
-        # Centralizar o círculo no cursor
         center = cursor_size // 2
         radius = size // 2
         painter.drawEllipse(center - radius, center - radius, size, size)
         
-        # Cruz de mira no centro
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawLine(center, center - radius - 2, center, center + radius + 2)  # Vertical
-        painter.drawLine(center - radius - 2, center, center + radius + 2, center)  # Horizontal
+        painter.drawLine(center, center - radius - 2, center, center + radius + 2)
+        painter.drawLine(center - radius - 2, center, center + radius + 2, center)
         
         painter.end()
         
@@ -416,43 +621,32 @@ class ImageViewer(QGraphicsView):
 
     def _create_rectangle_cursor(self):
         """Cria cursor personalizado para retângulo com tamanho proporcional"""
-        size = self._get_current_point_size()
-        size = int(size * self.zoom_factor)
-        # REMOVEU: cursor_size = max(24, int(size * 1.5 * self.zoom_factor))
-        cursor_size = max(24, int(size * 1.5))  # Tamanho fixo baseado no tamanho do ponto
+        width = int(self._get_current_point_width() * self.zoom_factor)
+        height = int(self._get_current_point_height() * self.zoom_factor)
+        
+        cursor_size = max(max(width, height) + 20, 24)
+        
         pixmap = QPixmap(cursor_size, cursor_size)
         pixmap.fill(Qt.GlobalColor.transparent)
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Retângulo azul com tamanho proporcional
         painter.setPen(QPen(QColor(255, 0, 0), 2))
         painter.setBrush(QBrush(QColor(255, 0, 0, 100)))
         
-        # Centralizar o retângulo no cursor
         center = cursor_size // 2
-        half_size = size // 2
-        rect_x = center - half_size
-        rect_y = center - half_size
-        painter.drawRect(rect_x, rect_y, size, size)
+        rect_x = center - width // 2
+        rect_y = center - height // 2
+        painter.drawRect(rect_x, rect_y, width, height)
         
-        # Cruz de mira no centro
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawLine(center, center - half_size - 2, center, center + half_size + 2)  # Vertical
-        painter.drawLine(center - half_size - 2, center, center + half_size + 2, center)  # Horizontal
+        painter.drawLine(center, rect_y - 2, center, rect_y + height + 2)
+        painter.drawLine(rect_x - 2, center, rect_x + width + 2, center)
         
         painter.end()
         
         return QCursor(pixmap, center, center)
-    
-    def keyPressEvent(self, event: QKeyEvent):
-        """Handle key press - ESC para cancelar recorte"""
-        if event.key() == Qt.Key.Key_Escape and self._crop_mode:
-            self.set_crop_mode(False)
-            print("Recorte cancelado pelo usuário")
-        else:
-            super().keyPressEvent(event)
     
     # === UTILITÁRIOS ===
     
