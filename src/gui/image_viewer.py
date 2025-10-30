@@ -1,10 +1,10 @@
 """
-Visualizador de imagem com zoom, pan, navegação e preview de pontos - Versão Atualizada
+Visualizador de imagem com zoom, pan, navegação, preview de pontos e cores - Versão Final
 """
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QApplication
 from PyQt6.QtGui import (QPixmap, QWheelEvent, QMouseEvent, QPainter, 
                          QKeyEvent, QPen, QColor, QCursor, QBrush, QFont)
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF, QTimer
 from models.point import Point
 from typing import List
 
@@ -44,13 +44,16 @@ class ImageViewer(QGraphicsView):
         self._drag_start_pos = QPointF()
         self._drag_threshold = 5
         
-        # NOVO: Controle de preview
+        # Preview com timeout
         self._show_preview = False
+        self._preview_timer = QTimer()
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.timeout.connect(self._hide_preview_timeout)
         
         # Pontos para desenhar
         self.points: List[Point] = []
         
-        # Referência ao point_manager para sincronizar tamanhos
+        # Referência ao point_manager para sincronizar tamanhos e tolerância
         self.point_manager = None
         
         self.setup_viewer()
@@ -83,6 +86,14 @@ class ImageViewer(QGraphicsView):
         for point in self.points:
             pos = point.position
             
+            # Determinar cor baseado em diferença
+            if self.point_manager and point.esta_acima_tolerancia(self.point_manager.tolerance_percent):
+                cor = QColor(255, 105, 180)  # Rosa (HotPink)
+                alpha = 150
+            else:
+                cor = QColor(255, 0, 0)      # Vermelho
+                alpha = 120
+            
             font_size = max(8, int(point.size * 0.25))
             font = painter.font()
             font.setPointSize(font_size)
@@ -90,8 +101,8 @@ class ImageViewer(QGraphicsView):
             painter.setFont(font)
             
             if point.shape == 'circle':
-                painter.setPen(QPen(QColor(255, 0, 0), 2))
-                painter.setBrush(QColor(255, 0, 0, 120))
+                painter.setPen(QPen(cor, 2))
+                painter.setBrush(QColor(cor.red(), cor.green(), cor.blue(), alpha))
                 painter.drawEllipse(pos, point.size/2, point.size/2)
                 
                 painter.setPen(QPen(QColor(255, 255, 255), 1))
@@ -99,8 +110,8 @@ class ImageViewer(QGraphicsView):
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
                 
             elif point.shape == 'rectangle':
-                painter.setPen(QPen(QColor(255, 0, 0), 1))
-                painter.setBrush(QColor(255, 0, 0, 120))
+                painter.setPen(QPen(cor, 1))
+                painter.setBrush(QColor(cor.red(), cor.green(), cor.blue(), alpha))
                 rect_draw = QRectF(pos.x() - point.width/2, pos.y() - point.height/2, point.width, point.height)
                 painter.drawRect(rect_draw)
                 
@@ -108,17 +119,15 @@ class ImageViewer(QGraphicsView):
                 text_rect = QRectF(pos.x() - point.width/2, pos.y() - point.height/2, point.width, point.height)
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(point.id))
         
-        # NOVO: DESENHA PREVIEW CENTRALIZADO
+        # DESENHA PREVIEW CENTRALIZADO
         if self._points_mode and self._show_preview:
             self._draw_preview_overlay(painter)
     
     def _draw_preview_overlay(self, painter):
         """Desenha preview do ponto no centro da viewport"""
-        # Obter centro da viewport visível
         viewport_center = self.viewport().rect().center()
         scene_center = self.mapToScene(viewport_center)
         
-        # Semi-transparente para não atrapalhar
         painter.setOpacity(0.8)
         
         shape = self._get_current_point_shape()
@@ -126,19 +135,16 @@ class ImageViewer(QGraphicsView):
         if shape == 'circle':
             size = self._get_current_point_size()
             
-            # Círculo preview AZUL (diferente dos pontos vermelhos)
             painter.setPen(QPen(QColor(0, 150, 255), 3))
             painter.setBrush(QColor(0, 150, 255, 100))
             painter.drawEllipse(scene_center, size/2, size/2)
             
-            # Texto indicando tamanho
             painter.setPen(QColor(255, 255, 255))
             font = painter.font()
             font.setPointSize(14)
             font.setBold(True)
             painter.setFont(font)
             
-            # Texto ABAIXO do círculo
             text_rect = QRectF(scene_center.x() - 60, scene_center.y() + size/2 + 10, 120, 30)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"Ø {int(size)}px")
             
@@ -146,7 +152,6 @@ class ImageViewer(QGraphicsView):
             width = self._get_current_point_width()
             height = self._get_current_point_height()
             
-            # Retângulo preview AZUL
             painter.setPen(QPen(QColor(0, 150, 255), 3))
             painter.setBrush(QColor(0, 150, 255, 100))
             rect_preview = QRectF(
@@ -157,14 +162,12 @@ class ImageViewer(QGraphicsView):
             )
             painter.drawRect(rect_preview)
             
-            # Texto com dimensões
             painter.setPen(QColor(255, 255, 255))
             font = painter.font()
             font.setPointSize(14)
             font.setBold(True)
             painter.setFont(font)
             
-            # Texto ABAIXO do retângulo
             text_rect = QRectF(scene_center.x() - 60, scene_center.y() + height/2 + 10, 120, 30)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{int(width)}×{int(height)}px")
         
@@ -174,7 +177,25 @@ class ImageViewer(QGraphicsView):
         """Define se o preview deve ser exibido"""
         self._show_preview = visible
         self.scene.update()
-        print(f"Preview: {'Visível' if visible else 'Oculto'}")
+        
+        if visible:
+            # Resetar timer quando preview é mostrado
+            self._preview_timer.stop()
+        else:
+            # Iniciar timer de 1 segundo para esconder
+            self._preview_timer.start(1000)
+    
+    def _hide_preview_timeout(self):
+        """Esconde preview após timeout"""
+        self._show_preview = False
+        self.scene.update()
+    
+    def _show_preview_with_timeout(self):
+        """Mostra preview e inicia timer"""
+        self._show_preview = True
+        self.scene.update()
+        self._preview_timer.stop()
+        self._preview_timer.start(1000)
     
     def set_points(self, points: List[Point]):
         """Define os pontos a serem exibidos"""
@@ -311,19 +332,15 @@ class ImageViewer(QGraphicsView):
                 self.point_manager.current_size += 5
             elif not increase and self.point_manager.current_size > 10:
                 self.point_manager.current_size -= 5
-            print(f"Tamanho círculo: {self.point_manager.current_size}px")
         
         elif shape == 'rectangle':
             if increase and self.point_manager.current_width < 200:
                 self.point_manager.current_width += 5
             elif not increase and self.point_manager.current_width > 10:
                 self.point_manager.current_width -= 5
-            print(f"Largura retângulo: {self.point_manager.current_width}px")
         
-        # Atualizar cursor e preview
         self.update_cursor()
-        self.set_preview_visible(True)
-        self.scene.update()
+        self._show_preview_with_timeout()
     
     def _adjust_rectangle_width(self, increase: bool):
         """Ajusta largura do retângulo"""
@@ -335,10 +352,8 @@ class ImageViewer(QGraphicsView):
         elif not increase and self.point_manager.current_width > 10:
             self.point_manager.current_width -= 5
         
-        print(f"Largura: {self.point_manager.current_width}px")
         self.update_cursor()
-        self.set_preview_visible(True)
-        self.scene.update()
+        self._show_preview_with_timeout()
     
     def _adjust_rectangle_height(self, increase: bool):
         """Ajusta altura do retângulo"""
@@ -350,10 +365,8 @@ class ImageViewer(QGraphicsView):
         elif not increase and self.point_manager.current_height > 10:
             self.point_manager.current_height -= 5
         
-        print(f"Altura: {self.point_manager.current_height}px")
         self.update_cursor()
-        self.set_preview_visible(True)
-        self.scene.update()
+        self._show_preview_with_timeout()
     
     def zoom_in(self):
         """Aumenta zoom"""
@@ -415,22 +428,21 @@ class ImageViewer(QGraphicsView):
                 event.accept()
                 return
             
-            # A = Diminuir altura (retângulo apenas)
-            elif event.key() == Qt.Key.Key_A and shape == 'rectangle':
-                self._adjust_rectangle_height(increase=False)
-                event.accept()
-                return
-            
             # D = Aumentar altura (retângulo apenas)
             elif event.key() == Qt.Key.Key_D and shape == 'rectangle':
                 self._adjust_rectangle_height(increase=True)
+                event.accept()
+                return
+            
+            # A = Diminuir altura (retângulo apenas)
+            elif event.key() == Qt.Key.Key_A and shape == 'rectangle':
+                self._adjust_rectangle_height(increase=False)
                 event.accept()
                 return
         
         # ESC = Cancelar recorte
         if event.key() == Qt.Key.Key_Escape and self._crop_mode:
             self.set_crop_mode(False)
-            print("Recorte cancelado pelo usuário")
             event.accept()
             return
         
@@ -439,7 +451,7 @@ class ImageViewer(QGraphicsView):
     # === CONTROLE DE MOUSE ===
     
     def mousePressEvent(self, event: QMouseEvent):
-        """Handle mouse press - SUPORTA CLIQUE PARA PONTOS"""
+        """Handle mouse press"""
         if event.button() == Qt.MouseButton.LeftButton:
             if self._crop_mode:
                 scene_pos = self.mapToScene(event.pos())
@@ -458,7 +470,7 @@ class ImageViewer(QGraphicsView):
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move - DIFERENCIA ENTRE CLIQUE E ARRASTE"""
+        """Handle mouse move"""
         scene_pos = self.mapToScene(event.pos())
         self.mouse_position_changed.emit(scene_pos)
         
@@ -488,7 +500,7 @@ class ImageViewer(QGraphicsView):
         super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event: QMouseEvent):
-        """Handle mouse release - EMITE CLIQUE PARA PONTOS"""
+        """Handle mouse release"""
         if event.button() == Qt.MouseButton.LeftButton:
             if self._is_panning:
                 self._is_panning = False
@@ -550,13 +562,11 @@ class ImageViewer(QGraphicsView):
             self.setCursor(Qt.CursorShape.CrossCursor)
             self._crop_start = QPointF()
             self._crop_end = QPointF()
-            print("Modo recorte ativado - Arraste para selecionar a área")
         else:
             self._set_point_cursor() if self._points_mode else self.setCursor(Qt.CursorShape.ArrowCursor)
             self._crop_start = QPointF()
             self._crop_end = QPointF()
             self.scene.update()
-            print("Modo recorte desativado")
 
     def set_points_mode(self, enabled: bool, shape_type: str = None):
         """Ativa/desativa modo de marcação de pontos"""
@@ -566,18 +576,11 @@ class ImageViewer(QGraphicsView):
             
         if enabled:
             self._set_point_cursor()
-            if self._get_current_point_shape() == 'circle':
-                size = self._get_current_point_size()
-                print(f"Modo marcação - Círculo: Ø {size}px")
-            else:
-                width = self._get_current_point_width()
-                height = self._get_current_point_height()
-                print(f"Modo marcação - Retângulo: {width}×{height}px")
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self._show_preview = False
+            self._preview_timer.stop()
             self.scene.update()
-            print("Modo marcação desativado")
     
     def update_cursor(self):
         """Atualiza o cursor baseado no modo e tamanho atual"""
@@ -593,7 +596,7 @@ class ImageViewer(QGraphicsView):
             self.setCursor(self._create_rectangle_cursor())
     
     def _create_circle_cursor(self):
-        """Cria cursor personalizado para círculo com tamanho proporcional"""
+        """Cria cursor personalizado para círculo"""
         size = self._get_current_point_size()
         size = int(size * self.zoom_factor)
         cursor_size = max(24, int(size * 1.5))
@@ -620,7 +623,7 @@ class ImageViewer(QGraphicsView):
         return QCursor(pixmap, center, center)
 
     def _create_rectangle_cursor(self):
-        """Cria cursor personalizado para retângulo com tamanho proporcional"""
+        """Cria cursor personalizado para retângulo"""
         width = int(self._get_current_point_width() * self.zoom_factor)
         height = int(self._get_current_point_height() * self.zoom_factor)
         
