@@ -141,6 +141,17 @@ class MainWindow(QMainWindow):
         # Inicializar sistema de imagem PRIMEIRO
         self.image_editor = ImageEditor()
         self.image_viewer = ImageViewer()
+
+        print("=" * 50)
+        print("🔍 DIAGNÓSTICO DE INICIALIZAÇÃO")
+        print("=" * 50)
+        print(f"✅ ImageEditor: {type(self.image_editor).__name__}")
+        print(f"   É stub? {type(self.image_editor).__module__ == '__main__'}")
+        print(f"✅ ImageViewer: {type(self.image_viewer).__name__}")
+        print(f"   É stub? {type(self.image_viewer).__module__ == '__main__'}")
+        print("=" * 50)
+        print()
+        # ===============
         
         # Sistema de toolbar dinâmica
         self.toolbar_stack = QStackedWidget()
@@ -804,7 +815,124 @@ class MainWindow(QMainWindow):
     # === IMAGEM ===
     
     def abrir_imagem(self):
-        """Abre imagem"""
+        """Abre imagem - VERSÃO COM DEBUG"""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Abrir Imagem",
+            "",
+            "Imagens (*.png *.jpg *.jpeg *.bmp *.tiff *.gif);;Todos os arquivos (*)"
+        )
+        
+        if not filepath:
+            print("❌ Usuário cancelou seleção")
+            return
+        
+        print("\n" + "=" * 50)
+        print(f"📂 CARREGANDO IMAGEM: {filepath}")
+        print("=" * 50)
+        
+        # Verificar se arquivo existe
+        if not os.path.exists(filepath):
+            print(f"❌ Arquivo não existe: {filepath}")
+            QMessageBox.critical(self, "Erro", f"Arquivo não encontrado:\n{filepath}")
+            return
+        
+        print(f"✅ Arquivo existe")
+        print(f"   Tamanho: {os.path.getsize(filepath)} bytes")
+        
+        # MÉTODO 1: Tentar com QPixmap direto
+        print("\n📋 MÉTODO 1: QPixmap direto")
+        pixmap_direct = QPixmap(filepath)
+        
+        if not pixmap_direct.isNull():
+            print(f"✅ QPixmap carregou direto!")
+            print(f"   Dimensões: {pixmap_direct.width()}x{pixmap_direct.height()}")
+            
+            # Aplicar diretamente no viewer
+            if self.image_viewer.set_pixmap(pixmap_direct):
+                print("✅ ImageViewer.set_pixmap() sucesso")
+                self.change_state("edicao")
+                filename = os.path.basename(filepath)
+                self.statusBar().showMessage(f"Imagem carregada: {filename}")
+                self.image_info_label.setText(f"{filename} - {pixmap_direct.width()}x{pixmap_direct.height()}")
+                print("=" * 50)
+                print("✅ SUCESSO TOTAL!")
+                print("=" * 50 + "\n")
+                return
+            else:
+                print("❌ ImageViewer.set_pixmap() falhou")
+        else:
+            print("❌ QPixmap direto falhou")
+        
+        # MÉTODO 2: Tentar com ImageEditor (se não for stub)
+        print("\n📋 MÉTODO 2: ImageEditor")
+        try:
+            is_stub = type(self.image_editor).__module__ == '__main__'
+            print(f"   ImageEditor é stub? {is_stub}")
+            
+            if not is_stub:
+                success = self.image_editor.load_image(filepath)
+                print(f"   load_image() retornou: {success}")
+                
+                if success:
+                    print("✅ ImageEditor carregou")
+                    pil_img = self.image_editor.get_current_image()
+                    
+                    if pil_img:
+                        print(f"   PIL: {pil_img.size}, modo: {pil_img.mode}")
+                        
+                        # Converter para pixmap
+                        from utils.image_utils import pil_to_pixmap
+                        pixmap = pil_to_pixmap(pil_img)
+                        
+                        if not pixmap.isNull():
+                            print(f"✅ Conversão PIL→QPixmap OK")
+                            
+                            if self.image_viewer.set_pixmap(pixmap):
+                                print("✅ ImageViewer.set_pixmap() sucesso")
+                                self.change_state("edicao")
+                                filename = os.path.basename(filepath)
+                                self.statusBar().showMessage(f"Imagem carregada: {filename}")
+                                self.update_image_info()
+                                print("=" * 50)
+                                print("✅ SUCESSO TOTAL!")
+                                print("=" * 50 + "\n")
+                                return
+                        else:
+                            print("❌ Conversão PIL→QPixmap resultou em pixmap nulo")
+            else:
+                print("⚠️  ImageEditor é stub - pulando")
+        except Exception as e:
+            print(f"❌ Exceção: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # MÉTODO 3: ImageViewer direto
+        print("\n📋 MÉTODO 3: ImageViewer.load_image()")
+        try:
+            if self.image_viewer.load_image(filepath):
+                print("✅ ImageViewer.load_image() sucesso")
+                self.change_state("edicao")
+                filename = os.path.basename(filepath)
+                self.statusBar().showMessage(f"Imagem carregada: {filename}")
+                print("=" * 50)
+                print("✅ SUCESSO TOTAL!")
+                print("=" * 50 + "\n")
+                return
+        except Exception as e:
+            print(f"❌ Exceção: {e}")
+        
+        # Falhou tudo
+        print("\n" + "=" * 50)
+        print("❌ TODOS OS MÉTODOS FALHARAM")
+        print("=" * 50 + "\n")
+        
+        QMessageBox.critical(
+            self,
+            "Erro",
+            f"Não foi possível carregar a imagem.\n\nVerifique o console."
+        )
+        """Abre imagem - VERSÃO CORRIGIDA"""
         filepath, _ = QFileDialog.getOpenFileName(
             self,
             "Abrir Imagem",
@@ -812,15 +940,61 @@ class MainWindow(QMainWindow):
             get_supported_formats()
         )
         
-        if filepath:
+        if not filepath:
+            return
+        
+        print(f"📂 Tentando carregar: {filepath}")
+        
+        try:
+            # Tentar carregar com ImageEditor
             success = self.image_editor.load_image(filepath)
+            
             if success:
+                print("✅ ImageEditor carregou com sucesso")
+                # Atualizar ImageViewer
+                self.on_image_updated(self.image_editor.get_current_image())
+                
+                # Mudar para estado de edição
                 self.change_state("edicao")
+                
                 filename = os.path.basename(filepath)
                 self.statusBar().showMessage(f"Imagem carregada: {filename}")
                 self.update_image_info()
             else:
-                QMessageBox.warning(self, "Erro", "Não foi possível carregar a imagem.")
+                print("❌ ImageEditor falhou ao carregar")
+                # Tentar carregar diretamente no viewer
+                if self.image_viewer.load_image(filepath):
+                    print("✅ ImageViewer carregou diretamente")
+                    self.change_state("edicao")
+                    filename = os.path.basename(filepath)
+                    self.statusBar().showMessage(f"Imagem carregada: {filename}")
+                    self.update_image_info()
+                else:
+                    print("❌ ImageViewer também falhou")
+                    QMessageBox.warning(self, "Erro", "Não foi possível carregar a imagem.")
+        
+        except Exception as e:
+            print(f"❌ Exceção ao carregar imagem: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Erro", f"Erro ao carregar imagem: {e}")
+            """Abre imagem"""
+            filepath, _ = QFileDialog.getOpenFileName(
+                self,
+                "Abrir Imagem",
+                "",
+                get_supported_formats()
+            )
+            
+            if filepath:
+                success = self.image_editor.load_image(filepath)
+                if success:
+                    self.change_state("edicao")
+                    filename = os.path.basename(filepath)
+                    self.statusBar().showMessage(f"Imagem carregada: {filename}")
+                    self.update_image_info()
+                else:
+                    QMessageBox.warning(self, "Erro", "Não foi possível carregar a imagem.")
     
     def desfazer_imagem(self):
         self.image_editor.undo()
@@ -982,6 +1156,34 @@ class MainWindow(QMainWindow):
             self.point_manager.points_changed.connect(self.image_viewer.set_points)
         if hasattr(self.points_table, 'tolerance_changed'):
             self.points_table.tolerance_changed.connect(self.on_tolerance_changed)
+        if hasattr(self.image_editor, 'image_updated'):
+            self.image_editor.image_updated.connect(self.on_image_updated)
+        if hasattr(self.image_editor, 'error_occurred'):
+            self.image_editor.error_occurred.connect(self.on_image_error)
+
+    def on_image_updated(self, pil_image):
+        """Callback quando imagem é atualizada pelo ImageEditor"""
+        try:
+            print(f"🔄 on_image_updated chamado")
+            from utils.image_utils import pil_to_pixmap
+            pixmap = pil_to_pixmap(pil_image)
+            
+            if pixmap.isNull():
+                print("❌ Pixmap está nulo!")
+                return
+            
+            print(f"✅ Pixmap criado: {pixmap.width()}x{pixmap.height()}")
+            self.image_viewer.set_pixmap(pixmap)
+            self.update_image_info()
+        except Exception as e:
+            print(f"❌ Erro em on_image_updated: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def on_image_error(self, error_message):
+        """Callback quando ocorre erro no ImageEditor"""
+        QMessageBox.warning(self, "Erro de Imagem", error_message)
+        self.statusBar().showMessage(f"Erro: {error_message}")
     
     def on_points_changed(self, points):
         self.points_table.update_points(points)
